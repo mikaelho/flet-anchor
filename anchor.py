@@ -14,8 +14,8 @@ def _anchor_prop(attribute):
 
 
 class Anchored(ft.canvas.Canvas):
-    default_gap = 4
-    default_padding = 4
+    default_gap = 8
+    default_padding = 8
 
     def __init__(self, content=None, **kwargs):
         self._anchors = self.get_manager(kwargs)
@@ -84,49 +84,53 @@ class AnchoredStack(Anchored):
 
 
 class AnchorManager:
-    update_lock = threading.RLock()
-    update_queue = queue.Queue()
+    UPDATE_LOCK = threading.RLock()
+    UPDATE_QUEUE = queue.Queue()
+
+    LEFT, RIGHT, TOP, BOTTOM, WIDTH, HEIGHT, CENTER_X, CENTER_Y = (
+        "left", "right", "top", "bottom", "width", "height", "center_x", "center_y"
+    )
 
     GETTERS_PARENT = {
-        "left": lambda parent_actuals: 0,
-        "right": lambda parent_actuals: parent_actuals.get("width", 0),
-        "top": lambda parent_actuals: 0,
-        "bottom": lambda parent_actuals: parent_actuals.get("height", 0),
-        "width": lambda parent_actuals: parent_actuals.get("width", 0),
-        "height": lambda parent_actuals: parent_actuals.get("height", 0),
-        "center_x": lambda parent_actuals: parent_actuals.get("width", 0) / 2,
-        "center_y": lambda parent_actuals: parent_actuals.get("height", 0) / 2,
+        LEFT: lambda parent_actuals: 0,
+        RIGHT: lambda parent_actuals: parent_actuals.get("width", 0),
+        TOP: lambda parent_actuals: 0,
+        BOTTOM: lambda parent_actuals: parent_actuals.get("height", 0),
+        WIDTH: lambda parent_actuals: parent_actuals.get("width", 0),
+        HEIGHT: lambda parent_actuals: parent_actuals.get("height", 0),
+        CENTER_X: lambda parent_actuals: parent_actuals.get("width", 0) / 2,
+        CENTER_Y: lambda parent_actuals: parent_actuals.get("height", 0) / 2,
     }
 
     GETTERS_PEER = {
-        "left": lambda source_actuals, parent_actuals: source_actuals.get("left", 0),
-        "right": lambda source_actuals, parent_actuals: (
+        LEFT: lambda source_actuals, parent_actuals: source_actuals.get("left", 0),
+        RIGHT: lambda source_actuals, parent_actuals: (
             (parent_actuals.get("width", 0) - source_actuals.get("right"))
             if source_actuals.get("right") is not None
             else (source_actuals.get("left", 0) + source_actuals.get("width", 0))
         ),
-        "top": lambda source_actuals, parent_actuals: source_actuals.get("top", 0),
-        "bottom": lambda source_actuals, parent_actuals: (
+        TOP: lambda source_actuals, parent_actuals: source_actuals.get("top", 0),
+        BOTTOM: lambda source_actuals, parent_actuals: (
             (parent_actuals.get("height", 0) - source_actuals.get("bottom"))
             if source_actuals.get("bottom") is not None
             else (source_actuals.get("top", 0) + source_actuals.get("height", 0))
         ),
-        "width": lambda source_actuals, parent_actuals: source_actuals.get("width", 0),
-        "height": lambda source_actuals, parent_actuals: source_actuals.get("height", 0),
-        "center_x": lambda source_actuals, parent_actuals: (
+        WIDTH: lambda source_actuals, parent_actuals: source_actuals.get("width", 0),
+        HEIGHT: lambda source_actuals, parent_actuals: source_actuals.get("height", 0),
+        CENTER_X: lambda source_actuals, parent_actuals: (
             source_actuals.get("left", 0) + source_actuals.get("width", 0) / 2
         ),
-        "center_y": lambda source_actuals, parent_actuals: (
+        CENTER_Y: lambda source_actuals, parent_actuals: (
             source_actuals.get("top", 0) + source_actuals.get("height", 0) / 2
         ),
     }
 
     SETTERS = {
-        "left": lambda value, anchors, actuals, parent_actuals: {"left": value},
-        "right": lambda value, anchors, actuals, parent_actuals: {"right": parent_actuals.get("width", 0) - value},
-        "top": lambda value, anchors, actuals, parent_actuals: {"top": value},
-        "bottom": lambda value, anchors, actuals, parent_actuals: {"bottom": parent_actuals.get("height", 0) - value},
-        "center_x": lambda value, anchors, actuals, parent_actuals: (
+        LEFT: lambda value, anchors, actuals, parent_actuals: {"left": value},
+        RIGHT: lambda value, anchors, actuals, parent_actuals: {"right": parent_actuals.get("width", 0) - value},
+        TOP: lambda value, anchors, actuals, parent_actuals: {"top": value},
+        BOTTOM: lambda value, anchors, actuals, parent_actuals: {"bottom": parent_actuals.get("height", 0) - value},
+        CENTER_X: lambda value, anchors, actuals, parent_actuals: (
             {"width": 2 * (value - actuals.get("left", 0))}  # left locked, width must give
             if anchors.get("left") is not None
             else {
@@ -135,7 +139,7 @@ class AnchorManager:
             if anchors.get("right") is not None
             else {"left": value - actuals.get("width", 0) / 2}  # Neither locked, move so that center in right place
         ),
-        "center_y": lambda value, anchors, actuals, parent_actuals: (
+        CENTER_Y: lambda value, anchors, actuals, parent_actuals: (
             {"height": 2 * (value - actuals.get("top", 0))}  # top locked, height must give
             if anchors.get("top") is not None
             else {
@@ -144,6 +148,19 @@ class AnchorManager:
             if anchors.get("bottom") is not None
             else {"top": value - actuals.get("height", 0) / 2}  # Neither locked, move so that center in right place
         ),
+    }
+
+    LEADING, TRAILING, NEUTRAL = "leading", "trailing", "neutral"
+
+    ATTRIBUTE_TYPES = {
+        WIDTH: NEUTRAL,
+        HEIGHT: NEUTRAL,
+        LEFT: LEADING,
+        RIGHT: TRAILING,
+        TOP: LEADING,
+        BOTTOM: TRAILING,
+        CENTER_X: NEUTRAL,
+        CENTER_Y: NEUTRAL,
     }
 
     def __init__(self, managed, **kwargs):
@@ -157,21 +174,21 @@ class AnchorManager:
         self.actuals = {}
 
     def set_anchor(self, attribute, value):
-        self.update_queue.put({"set": (self, attribute, value)})
+        self.UPDATE_QUEUE.put({"set": (self, attribute, value)})
         self.process_queue()
 
     def register(self, dependent):
         self.source_for[dependent._anchors.uuid] = dependent
 
     def on_resize(self, event: CanvasResizeEvent):
-        self.update_queue.put({"resize": (self, event.width, event.height)})
+        self.UPDATE_QUEUE.put({"resize": (self, event.width, event.height)})
         self.process_queue()
 
     def process_queue(self):
-        with self.update_lock:
+        with self.UPDATE_LOCK:
             while True:
                 try:
-                    task = self.update_queue.get_nowait()
+                    task = self.UPDATE_QUEUE.get_nowait()
                     if "set" in task:
                         manager, attribute, value = task["set"]
                         manager.anchors[attribute] = value
@@ -203,12 +220,22 @@ class AnchorManager:
                 source_value = anchor
             else:
                 source = anchor.control._anchors
+                source_type = self.ATTRIBUTE_TYPES[anchor.attribute]
+                target_type = self.ATTRIBUTE_TYPES[attribute]
                 if self.managed.is_contained_in(anchor.control):
                     getter = self.GETTERS_PARENT[anchor.attribute]
                     source_value = getter(source.actuals)
+                    if source_type == self.LEADING and target_type == self.LEADING:
+                        source_value += self.padding
+                    elif source_type == self.TRAILING and target_type == self.TRAILING:
+                        source_value -= self.padding
                 else:
                     getter = self.GETTERS_PEER[anchor.attribute]
                     source_value = getter(source.actuals, source.parent._anchors.actuals)
+                    if source_type == self.LEADING and target_type == self.TRAILING:
+                        source_value -= self.gap
+                    elif source_type == self.TRAILING and target_type == self.LEADING:
+                        source_value += self.gap
             setter = self.SETTERS[attribute]
             for set_attribute, final_value in setter(
                 source_value, self.anchors, self.actuals, self.parent._anchors.actuals
