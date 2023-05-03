@@ -14,8 +14,8 @@ def _anchor_prop(attribute):
 
 
 class Anchored(ft.canvas.Canvas):
-    default_gap = 8
-    default_padding = 8
+    DEFAULT_GAP = 10
+    DEFAULT_PADDING = 10
 
     def __init__(self, content=None, **kwargs):
         self._anchors = self.get_manager(kwargs)
@@ -31,8 +31,8 @@ class Anchored(ft.canvas.Canvas):
         height = kwargs.pop("height", None)
         center_x = kwargs.pop("center_x", None)
         center_y = kwargs.pop("center_y", None)
-        gap = kwargs.pop("gap", self.default_gap)
-        padding = kwargs.pop("padding", self.default_padding)
+        gap = kwargs.pop("gap", None)
+        padding = kwargs.pop("padding", None)
 
         return AnchorManager(
             self,
@@ -50,6 +50,15 @@ class Anchored(ft.canvas.Canvas):
 
     def is_contained_in(self, source):
         return isinstance(source.content, ft.Stack) and self in source.content.controls
+
+    @property
+    def gap(self):
+        custom_gap = self._anchors.gap
+        return custom_gap if custom_gap is not None else self.DEFAULT_GAP
+
+    @gap.setter
+    def gap(self, value):
+        self._anchors.gap = value
 
     top = _anchor_prop("top")
     bottom = _anchor_prop("bottom")
@@ -81,6 +90,15 @@ class AnchoredStack(Anchored):
         for control in value:
             if type(control) is Anchored:
                 control._anchors.parent = self
+
+    @property
+    def padding(self):
+        custom_padding = self._anchors.padding
+        return custom_padding if custom_padding is not None else self.DEFAULT_PADDING
+
+    @padding.setter
+    def padding(self, value):
+        self._anchors.padding = value
 
 
 class AnchorManager:
@@ -226,16 +244,16 @@ class AnchorManager:
                     getter = self.GETTERS_PARENT[anchor.attribute]
                     source_value = getter(source.actuals)
                     if source_type == self.LEADING and target_type == self.LEADING:
-                        source_value += self.padding
+                        source_value += self.parent.padding
                     elif source_type == self.TRAILING and target_type == self.TRAILING:
-                        source_value -= self.padding
+                        source_value -= self.parent.padding
                 else:
                     getter = self.GETTERS_PEER[anchor.attribute]
                     source_value = getter(source.actuals, source.parent._anchors.actuals)
                     if source_type == self.LEADING and target_type == self.TRAILING:
-                        source_value -= self.gap
+                        source_value -= self.managed.gap
                     elif source_type == self.TRAILING and target_type == self.LEADING:
-                        source_value += self.gap
+                        source_value += self.managed.gap
             setter = self.SETTERS[attribute]
             for set_attribute, final_value in setter(
                 source_value, self.anchors, self.actuals, self.parent._anchors.actuals
@@ -257,6 +275,7 @@ class Anchor:
 if __name__ == "__main__":
 
     def main(page: ft.Page):
+        page.padding = 0
         page.add(root := AnchoredStack(expand=True))
         # search_button = Anchored(ft.ElevatedButton("Search"), parent=root, center=True)
         # rescue_button = Anchored(ft.ElevatedButton("Rescue"), below=search_button)
@@ -264,7 +283,7 @@ if __name__ == "__main__":
         search_button = Anchored(ft.ElevatedButton("Search"))
         rescue_button = Anchored(ft.ElevatedButton("Rescue"))
         search_button.center_x = root.center_x
-        search_button.center_y = root.center_y
+        search_button.top = root.top
         rescue_button.center_x = search_button.center_x
         rescue_button.top = search_button.bottom
 
