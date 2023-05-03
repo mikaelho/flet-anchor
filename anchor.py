@@ -78,11 +78,11 @@ class Anchored(ft.canvas.Canvas):
         super().__init__(content=content, **kwargs)
 
         if parent:
-            if type(parent) is AnchoredStack:
+            if type(parent) is AnchorStack:
                 parent.content.controls.append(self)
                 self._anchors.parent = parent
             else:
-                raise ValueError(f"parent should be of type AnchoredStack, not {type(parent)}")
+                raise ValueError(f"parent should be of type AnchorStack, not {type(parent)}")
 
         self.gap = gap
 
@@ -178,7 +178,10 @@ class Anchored(ft.canvas.Canvas):
     dock_left_of = _dock_prop("dock_left_of")
 
 
-class AnchoredStack(Anchored):
+class AnchorStack(Anchored):
+
+    DEFAULT_PADDING = 0
+
     def __init__(self, controls=None, padding=None, **kwargs):
         controls = controls or []
         for control in controls or []:
@@ -238,13 +241,21 @@ class AnchorManager:
     }
 
     GETTERS_PEER = {
-        LEFT: lambda source_actuals, parent_actuals: source_actuals.get("left", 0),
+        LEFT: lambda source_actuals, parent_actuals: (
+            parent_actuals.get("left")
+            if source_actuals.get("left") is not None
+            else (parent_actuals.get("width", 0) - source_actuals.get("right", 0) - source_actuals.get("width", 0))
+        ),
         RIGHT: lambda source_actuals, parent_actuals: (
             (parent_actuals.get("width", 0) - source_actuals.get("right"))
             if source_actuals.get("right") is not None
             else (source_actuals.get("left", 0) + source_actuals.get("width", 0))
         ),
-        TOP: lambda source_actuals, parent_actuals: source_actuals.get("top", 0),
+        TOP: lambda source_actuals, parent_actuals: (
+            parent_actuals.get("top")
+            if source_actuals.get("top") is not None
+            else (parent_actuals.get("height", 0) - source_actuals.get("bottom", 0) - source_actuals.get("height", 0))
+        ),
         BOTTOM: lambda source_actuals, parent_actuals: (
             (parent_actuals.get("height", 0) - source_actuals.get("bottom"))
             if source_actuals.get("bottom") is not None
@@ -265,6 +276,8 @@ class AnchorManager:
         RIGHT: lambda value, anchors, actuals, parent_actuals: {"right": parent_actuals.get("width", 0) - value},
         TOP: lambda value, anchors, actuals, parent_actuals: {"top": value},
         BOTTOM: lambda value, anchors, actuals, parent_actuals: {"bottom": parent_actuals.get("height", 0) - value},
+        WIDTH: lambda value, anchors, actuals, parent_actuals: {"width": value},
+        HEIGHT: lambda value, anchors, actuals, parent_actuals: {"height": value},
         CENTER_X: lambda value, anchors, actuals, parent_actuals: (
             {"width": 2 * (value - actuals.get("left", 0))}  # left locked, width must give
             if anchors.get("left") is not None
@@ -435,18 +448,14 @@ class AnchorManager:
                         source_value -= self.managed.gap
                     elif source_type == self.TRAILING and target_type == self.LEADING:
                         source_value += self.managed.gap
+
             setter = self.SETTERS[attribute]
-            for set_attribute, final_value in setter(
-                source_value, self.anchors, self.actuals, self.parent._anchors.actuals
-            ).items():
+            set_value = setter(source_value, self.anchors, self.actuals, self.parent._anchors.actuals)
+
+            for set_attribute, final_value in set_value.items():
                 if self.actuals.get(set_attribute) != final_value:
                     self.actuals[set_attribute] = final_value
                     self.managed._set_attr(set_attribute, final_value)
-
-        # if type(self) is AnchoredStack:
-        #     for control in self.content.controls:
-        #         if isinstance(control, Anchored):
-        #             control._anchors.update_anchor_actuals()
 
         for control in self.source_for.values():
             control._anchors.update_anchor_actuals()
@@ -461,9 +470,17 @@ class Anchor:
 if __name__ == "__main__":
 
     def main(page: ft.Page):
-        page.add(root := AnchoredStack(expand=True))
-        search_button = Anchored(ft.ElevatedButton("Search"), dock_center=root)
-        rescue_button = Anchored(ft.ElevatedButton("Rescue"), dock_below=search_button)
-        root.controls = [search_button, rescue_button]
+        page.add(root := AnchorStack(expand=True))
+
+        search_button = Anchored(ft.ElevatedButton("Search"), dock_top_right=root)
+        search_field = Anchored(
+            ft.TextField(dense=True), dock_top_left=root, right=search_button.left, align_height=search_button
+        )
+        done_button = Anchored(ft.ElevatedButton("Done"), dock_bottom_right=root)
+        result_area = Anchored(results := ft.ListView(), dock_sides=root, top=search_field.bottom, bottom=done_button.top)
+
+        results.controls = [ft.ListTile(title=ft.Text(f"Value {i}")) for i in range(200)]
+
+        root.controls = [search_field, search_button, result_area, done_button]
 
     ft.app(main)
