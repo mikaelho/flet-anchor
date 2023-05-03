@@ -13,13 +13,108 @@ def _anchor_prop(attribute):
     )
 
 
+def _dock_prop(attribute):
+    return property(
+        lambda self: self._anchors.check_dock(attribute),
+        lambda self, value: self._anchors.set_dock(attribute, value),
+    )
+
+
+def _align_prop(attribute):
+    return property(
+        lambda self: False,  # Not meaningful
+        lambda self, *others: self._anchors.set_align(attribute, others)
+    )
+
+
 class Anchored(ft.canvas.Canvas):
     DEFAULT_GAP = 10
     DEFAULT_PADDING = 10
 
-    def __init__(self, content=None, **kwargs):
-        self._anchors = self.get_manager(kwargs)
+    def __init__(
+        self,
+        content=None,
+        parent=None,
+        gap=None,
+        top=None,
+        bottom=None,
+        left=None,
+        right=None,
+        width=None,
+        height=None,
+        center_x=None,
+        center_y=None,
+        align_top=None,
+        align_bottom=None,
+        align_left=None,
+        align_right=None,
+        align_width=None,
+        align_height=None,
+        align_center_x=None,
+        align_center_y=None,
+        dock_top_left=None,
+        dock_top_right=None,
+        dock_bottom_left=None,
+        dock_bottom_right=None,
+        dock_top_center=None,
+        dock_bottom_center=None,
+        dock_left_center=None,
+        dock_right_center=None,
+        dock_sides=None,
+        dock_top_bottom=None,
+        dock_top=None,
+        dock_left=None,
+        dock_bottom=None,
+        dock_right=None,
+        dock_center=None,
+        dock_all=None,
+        **kwargs
+    ):
+        self._anchors = AnchorManager(self)
         super().__init__(content=content, **kwargs)
+
+        if parent:
+            if type(parent) is AnchoredStack:
+                parent.content.controls.append(self)
+                self._anchors.parent = parent
+            else:
+                raise ValueError(f"parent should be of type AnchoredStack, not {type(parent)}")
+
+        self.gap = gap
+
+        self.top = top
+        self.bottom = bottom
+        self.left = left
+        self.right = right
+        self.width = width
+        self.height = height
+        self.center_x = center_x
+        self.center_y = center_y
+        self.align_top = align_top
+        self.align_bottom = align_bottom
+        self.align_left = align_left
+        self.align_right = align_right
+        self.align_width = align_width
+        self.align_height = align_height
+        self.align_center_x = align_center_x
+        self.align_center_y = align_center_y
+        self.dock_top_left = dock_top_left
+        self.dock_top_right = dock_top_right
+        self.dock_bottom_left = dock_bottom_left
+        self.dock_bottom_right = dock_bottom_right
+        self.dock_top_center = dock_top_center
+        self.dock_bottom_center = dock_bottom_center
+        self.dock_left_center = dock_left_center
+        self.dock_right_center = dock_right_center
+        self.dock_sides = dock_sides
+        self.dock_top_bottom = dock_top_bottom
+        self.dock_top = dock_top
+        self.dock_left = dock_left
+        self.dock_bottom = dock_bottom
+        self.dock_right = dock_right
+        self.dock_center = dock_center
+        self.dock_all = dock_all
+
         self.on_resize = self._anchors.on_resize
 
     def get_manager(self, kwargs):
@@ -58,7 +153,7 @@ class Anchored(ft.canvas.Canvas):
 
     @gap.setter
     def gap(self, value):
-        self._anchors.gap = value
+        self._anchors.set_attribute("gap", value)
 
     top = _anchor_prop("top")
     bottom = _anchor_prop("bottom")
@@ -69,15 +164,43 @@ class Anchored(ft.canvas.Canvas):
     center_x = _anchor_prop("center_x")
     center_y = _anchor_prop("center_y")
 
+    align_top = _align_prop("top")
+    align_bottom = _align_prop("bottom")
+    align_left = _align_prop("left")
+    align_right = _align_prop("right")
+    align_width = _align_prop("width")
+    align_height = _align_prop("height")
+    align_center_x = _align_prop("center_x")
+    align_center_y = _align_prop("center_y")
+
+    dock_top_left = _dock_prop("dock_top_left")
+    dock_top_right = _dock_prop("dock_top_right")
+    dock_bottom_left = _dock_prop("dock_bottom_left")
+    dock_bottom_right = _dock_prop("dock_bottom_right")
+    dock_top_center = _dock_prop("dock_top_center")
+    dock_bottom_center = _dock_prop("dock_bottom_center")
+    dock_left_center = _dock_prop("dock_left_center")
+    dock_right_center = _dock_prop("dock_right_center")
+    dock_sides = _dock_prop("dock_sides")
+    dock_top_bottom = _dock_prop("dock_top_bottom")
+    dock_top = _dock_prop("dock_top")
+    dock_left = _dock_prop("dock_left")
+    dock_bottom = _dock_prop("dock_bottom")
+    dock_right = _dock_prop("dock_right")
+    dock_center = _dock_prop("dock_center")
+    dock_all = _dock_prop("dock_all")
+
 
 class AnchoredStack(Anchored):
-    def __init__(self, controls=None, **kwargs):
+    def __init__(self, controls=None, padding=None, **kwargs):
         controls = controls or []
         for control in controls or []:
             control.left = 0
         content = ft.Stack(controls=controls, expand=True)
 
         super().__init__(content=content, **kwargs)
+
+        self.padding = padding
 
     @property
     def controls(self):
@@ -98,7 +221,7 @@ class AnchoredStack(Anchored):
 
     @padding.setter
     def padding(self, value):
-        self._anchors.padding = value
+        self._anchors.set_attribute("padding", value)
 
 
 class AnchorManager:
@@ -168,6 +291,7 @@ class AnchorManager:
         ),
     }
 
+    PARENT = "parent"
     LEADING, TRAILING, NEUTRAL = "leading", "trailing", "neutral"
 
     ATTRIBUTE_TYPES = {
@@ -181,18 +305,58 @@ class AnchorManager:
         CENTER_Y: NEUTRAL,
     }
 
+    DOCK_PARENT = {
+        "dock_top_left": [TOP, LEFT],
+        "dock_top_right": [TOP, RIGHT],
+        "dock_bottom_left": [BOTTOM, LEFT],
+        "dock_bottom_right": [BOTTOM, RIGHT],
+        "dock_top_center": [TOP, CENTER_X],
+        "dock_bottom_center": [BOTTOM, CENTER_X],
+        "dock_left_center": [LEFT, CENTER_Y],
+        "dock_right_center": [RIGHT, CENTER_Y],
+        "dock_sides": [LEFT, RIGHT],
+        "dock_top_bottom": [TOP, BOTTOM],
+        "dock_top": [LEFT, TOP, RIGHT],
+        "dock_left": [TOP, LEFT, BOTTOM],
+        "dock_bottom": [LEFT, BOTTOM, RIGHT],
+        "dock_right": [TOP, RIGHT, BOTTOM],
+        "dock_center": [CENTER_X, CENTER_Y],
+        "dock_all": [LEFT, RIGHT, TOP, BOTTOM],
+    }
+
     def __init__(self, managed, **kwargs):
         self.uuid = uuid.uuid4()
         self.managed = managed
         self.parent = None
-        self.gap = kwargs.pop("gap")
-        self.padding = kwargs.pop("padding")
-        self.anchors = {**kwargs}
+        self.gap = None
+        self.padding = None
+        self.anchors = {}
         self.source_for = {}
         self.actuals = {}
 
+    def check_dock(self, attribute):
+        return all(self.anchors[dock_attribute] for dock_attribute in self.DOCK_PARENT[attribute])
+
+    def set_dock(self, attribute, value):
+        if value:
+            for dock_attribute in self.DOCK_PARENT[attribute]:
+                self.UPDATE_QUEUE.put({"set": (self, dock_attribute, Anchor(self.PARENT, dock_attribute))})
+            self.process_queue()
+
+    def set_align(self, attribute, others):
+        if not all(others):
+            return
+
+        for other in others:
+            self.UPDATE_QUEUE.put({"set": (self, attribute, Anchor(other, attribute))})
+        self.process_queue()
+
     def set_anchor(self, attribute, value):
         self.UPDATE_QUEUE.put({"set": (self, attribute, value)})
+        self.process_queue()
+
+    def set_attribute(self, attribute, value):
+        self.UPDATE_QUEUE.put({"attribute": (self, attribute, value)})
         self.process_queue()
 
     def register(self, dependent):
@@ -212,6 +376,8 @@ class AnchorManager:
                         manager.anchors[attribute] = value
 
                         if type(value) is Anchor:
+                            if value.control == self.PARENT and self.parent:
+                                value.control = self.parent
                             value.control._anchors.register(manager.managed)
 
                         if manager.managed.page:  # If we are being displayed
@@ -222,6 +388,11 @@ class AnchorManager:
 
                         manager.actuals["width"] = width
                         manager.actuals["height"] = height
+                        manager.update_anchor_actuals()
+
+                    elif "attribute" in task:
+                        manager, attribute, value = task["attribute"]
+                        setattr(manager, attribute, value)
                         manager.update_anchor_actuals()
 
                 except queue.Empty:
@@ -237,18 +408,21 @@ class AnchorManager:
             if type(anchor) is not Anchor:
                 source_value = anchor
             else:
-                source = anchor.control._anchors
-                source_type = self.ATTRIBUTE_TYPES[anchor.attribute]
+                source_control = anchor.control
+                source_attribute = anchor.attribute
+                source = source_control._anchors
+                source_type = self.ATTRIBUTE_TYPES[source_attribute]
                 target_type = self.ATTRIBUTE_TYPES[attribute]
-                if self.managed.is_contained_in(anchor.control):
-                    getter = self.GETTERS_PARENT[anchor.attribute]
+
+                if self.managed.is_contained_in(source_control):
+                    getter = self.GETTERS_PARENT[source_attribute]
                     source_value = getter(source.actuals)
                     if source_type == self.LEADING and target_type == self.LEADING:
                         source_value += self.parent.padding
                     elif source_type == self.TRAILING and target_type == self.TRAILING:
                         source_value -= self.parent.padding
                 else:
-                    getter = self.GETTERS_PEER[anchor.attribute]
+                    getter = self.GETTERS_PEER[source_attribute]
                     source_value = getter(source.actuals, source.parent._anchors.actuals)
                     if source_type == self.LEADING and target_type == self.TRAILING:
                         source_value -= self.managed.gap
@@ -275,18 +449,10 @@ class Anchor:
 if __name__ == "__main__":
 
     def main(page: ft.Page):
-        page.padding = 0
         page.add(root := AnchoredStack(expand=True))
-        # search_button = Anchored(ft.ElevatedButton("Search"), parent=root, center=True)
-        # rescue_button = Anchored(ft.ElevatedButton("Rescue"), below=search_button)
-
-        search_button = Anchored(ft.ElevatedButton("Search"))
-        rescue_button = Anchored(ft.ElevatedButton("Rescue"))
-        search_button.center_x = root.center_x
-        search_button.top = root.top
-        rescue_button.center_x = search_button.center_x
-        rescue_button.top = search_button.bottom
-
-        root.controls = [search_button, rescue_button]
+        search_button = Anchored(ft.ElevatedButton("Search"), parent=root, dock_center=True)
+        Anchored(
+            ft.ElevatedButton("Rescue"), parent=root, align_center_x=search_button, top=search_button.bottom
+        )
 
     ft.app(main)
