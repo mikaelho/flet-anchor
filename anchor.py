@@ -190,14 +190,16 @@ class AnchorStack(Anchored):
 
         super().__init__(content=content, **kwargs)
 
+        self._wrap_controls()
+
         self.padding = padding
 
-    def _get_children(self):
-        children = super()._get_children()
-        for child in self.content.controls:
-            if isinstance(child, Anchored):
-                child._anchors.parent = self
-        return children
+    # def _get_children(self):
+    #     children = super()._get_children()
+    #     for child in self.content.controls:
+    #         if isinstance(child, Anchored):
+    #             child._anchors.parent = self
+    #     return children
 
     @property
     def controls(self):
@@ -207,9 +209,14 @@ class AnchorStack(Anchored):
     def controls(self, value):
         self.content.controls = value
 
-        for control in value:
+        for control in self.content.controls:
             if type(control) is Anchored:
                 control._anchors.parent = self
+
+    def _wrap_controls(self):
+        tracked_list = AnchorList(self.controls)
+        tracked_list.stack = self
+        self.controls = tracked_list
 
     @property
     def padding(self):
@@ -242,7 +249,7 @@ class AnchorManager:
 
     GETTERS_PEER = {
         LEFT: lambda source_actuals, parent_actuals: (
-            parent_actuals.get("left")
+            source_actuals.get("left")
             if source_actuals.get("left") is not None
             else (parent_actuals.get("width", 0) - source_actuals.get("right", 0) - source_actuals.get("width", 0))
         ),
@@ -252,7 +259,7 @@ class AnchorManager:
             else (source_actuals.get("left", 0) + source_actuals.get("width", 0))
         ),
         TOP: lambda source_actuals, parent_actuals: (
-            parent_actuals.get("top")
+            source_actuals.get("top")
             if source_actuals.get("top") is not None
             else (parent_actuals.get("height", 0) - source_actuals.get("bottom", 0) - source_actuals.get("height", 0))
         ),
@@ -425,6 +432,7 @@ class AnchorManager:
         for attribute, anchor in self.anchors.items():
             if anchor is None:
                 continue
+            # print (self.managed.content, attribute, anchor)
             if type(anchor) is not Anchor:
                 source_value = anchor
             else:
@@ -444,6 +452,7 @@ class AnchorManager:
                 else:
                     getter = self.GETTERS_PEER[source_attribute]
                     source_value = getter(source.actuals, source.parent._anchors.actuals)
+
                     if source_type == self.LEADING and target_type == self.TRAILING:
                         source_value -= self.managed.gap
                     elif source_type == self.TRAILING and target_type == self.LEADING:
@@ -466,6 +475,22 @@ class Anchor:
         self.control = control
         self.attribute = attribute
 
+    def __str__(self):
+        return f"{isinstance(self.control, Anchored) and type(self.control.content).__name__ or self.control}.{self.attribute}"
+
+
+class AnchorList(list):
+
+    def append(self, item):
+        super().append(item)
+
+        self.stack._wrap_controls()
+
+    def extend(self, items):
+        super().extend(items)
+
+        self.stack._wrap_controls()
+
 
 if __name__ == "__main__":
 
@@ -477,7 +502,9 @@ if __name__ == "__main__":
             ft.TextField(dense=True), dock_top_left=root, right=search_button.left, align_height=search_button
         )
         done_button = Anchored(ft.ElevatedButton("Done"), dock_bottom_right=root)
-        result_area = Anchored(results := ft.ListView(), dock_sides=root, top=search_field.bottom, bottom=done_button.top)
+        result_area = Anchored(
+            results := ft.ListView(), dock_sides=root, top=search_field.bottom, bottom=done_button.top
+        )
 
         results.controls = [ft.ListTile(title=ft.Text(f"Value {i}")) for i in range(200)]
 
