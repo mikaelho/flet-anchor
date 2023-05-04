@@ -1,3 +1,4 @@
+import operator
 import queue
 import threading
 import uuid
@@ -458,6 +459,8 @@ class AnchorManager:
                     elif source_type == self.TRAILING and target_type == self.LEADING:
                         source_value += self.managed.gap
 
+                source_value = anchor.resolve_modifiers(source_value)
+
             setter = self.SETTERS[attribute]
             set_value = setter(source_value, self.anchors, self.actuals, self.parent._anchors.actuals)
 
@@ -474,9 +477,56 @@ class Anchor:
     def __init__(self, control, attribute):
         self.control = control
         self.attribute = attribute
+        self.modifiers = None
+        self.value = None
 
     def __str__(self):
         return f"{isinstance(self.control, Anchored) and type(self.control.content).__name__ or self.control}.{self.attribute}"
+
+    def add_modifier(self, op, other):
+        if self.modifiers is None:
+            self.modifiers = lambda: self.value
+
+        self.modifiers = {"op": op, "left": self.modifiers, "right": other}
+
+        return self
+
+    def resolve_modifiers(self, source_value):
+        if self.modifiers is None:
+            return source_value
+
+        self.value = source_value
+
+        return self.resolve_recursively(self.modifiers)
+
+    def resolve_recursively(self, value):
+        if type(value) is dict:
+            return value["op"](self.resolve_recursively(value["left"]), self.resolve_recursively(value["right"]))
+        elif callable(value):
+            return value()
+        else:
+            return value
+
+    def __add__(self, other):
+        return self.add_modifier(operator.add, other)
+
+    def __sub__(self, other):
+        return self.add_modifier(operator.sub, other)
+
+    def __mul__(self, other):
+        return self.add_modifier(operator.mul, other)
+
+    def __truediv__(self, other):
+        return self.add_modifier(operator.truediv, other)
+
+    def __floordiv__(self, other):
+        return self.add_modifier(operator.floordiv, other)
+
+    def __mod__(self, other):
+        return self.add_modifier(operator.mod, other)
+
+    def __pow__(self, other, modulo=None):
+        return self.add_modifier(operator.pow, other)
 
 
 class AnchorList(list):
@@ -497,16 +547,24 @@ if __name__ == "__main__":
     def main(page: ft.Page):
         page.add(root := AnchorStack(expand=True))
 
-        search_button = Anchored(ft.ElevatedButton("Search"), dock_top_right=root)
+        search_button = Anchored(ft.FilledButton("Search"), dock_top_right=root)
         search_field = Anchored(
-            ft.TextField(dense=True), dock_top_left=root, right=search_button.left, align_height=search_button
+            ft.Container(ft.TextField(dense=True), bgcolor=ft.colors.BLUE_GREY_900),
+            dock_top_left=root,
+            right=search_button.left,
+            align_height=search_button
         )
-        done_button = Anchored(ft.ElevatedButton("Done"), dock_bottom_right=root)
+        done_button = Anchored(ft.FilledButton("Done"), dock_bottom_right=root)
         result_area = Anchored(
-            results := ft.ListView(), dock_sides=root, top=search_field.bottom, bottom=done_button.top
+            ft.Container(results := ft.ListView(), bgcolor=ft.colors.BLUE_GREY_900),
+            dock_sides=root,
+            top=search_field.bottom,
+            bottom=done_button.top
         )
 
-        results.controls = [ft.ListTile(title=ft.Text(f"Value {i}")) for i in range(200)]
+        results.controls = [
+            ft.ListTile(title=ft.Text("Value " * (i + 1), size=12), height=40) for i in range(50)
+        ]
 
         root.controls = [search_field, search_button, result_area, done_button]
 
