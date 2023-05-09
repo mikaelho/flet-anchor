@@ -1,3 +1,4 @@
+import inspect
 import operator
 import queue
 import threading
@@ -458,6 +459,7 @@ class Anchor:
         self.control = control
         self.attribute = attribute
         self.modifiers = None
+        self.conditions = "foo"
         self.max_of = set()
         self.min_of = set()
         self.value = None
@@ -575,6 +577,28 @@ class Anchor:
         else:
             self.max_of.add(other)
 
+    def __enter__(self):
+        frame = inspect.currentframe().f_back.f_back
+        conditions = frame.f_locals.get("_flet_anchor_conditions", [])
+        conditions.append(self.conditions)
+        frame.f_locals["_flet_anchor_conditions"] = conditions
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        frame = inspect.currentframe().f_back.f_back
+        conditions = frame.f_locals.get("_flet_anchor_conditions")
+        conditions.pop()
+        if not conditions:
+            del frame.f_locals["_flet_anchor_conditions"]
+
+    @staticmethod
+    def get_current_conditions():
+        frame = inspect.currentframe()
+        while frame:
+            if conditions := frame.f_locals.get("_flet_anchor_conditions"):
+                return conditions
+            frame = frame.f_back
+        return []
+
 
 class AnchorList(list):
     """
@@ -617,5 +641,13 @@ if __name__ == "__main__":
         ]
 
         root.controls = [search_field, search_button, result_area, done_button]
+
+        # print(Anchor.get_current_conditions())
+        # with root.width > root.height:
+        #     print(Anchor.get_current_conditions())
+        #     with root.bottom:
+        #         print(Anchor.get_current_conditions())
+        #     print(Anchor.get_current_conditions())
+        # print(Anchor.get_current_conditions())
 
     ft.app(main)
