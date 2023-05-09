@@ -2,9 +2,15 @@ import operator
 import queue
 import threading
 import uuid
+from dataclasses import dataclass
 
 import flet as ft
 from flet_core.canvas import CanvasResizeEvent
+
+
+LEFT, RIGHT, TOP, BOTTOM, WIDTH, HEIGHT, CENTER_X, CENTER_Y = (
+        "left", "right", "top", "bottom", "width", "height", "center_x", "center_y"
+    )
 
 
 def _anchor_prop(attribute):
@@ -195,13 +201,6 @@ class AnchorStack(Anchored):
 
         self.padding = padding
 
-    # def _get_children(self):
-    #     children = super()._get_children()
-    #     for child in self.content.controls:
-    #         if isinstance(child, Anchored):
-    #             child._anchors.parent = self
-    #     return children
-
     @property
     def controls(self):
         return self.content.controls
@@ -233,52 +232,6 @@ class AnchorManager:
     UPDATE_LOCK = threading.RLock()
     UPDATE_QUEUE = queue.Queue()
 
-    LEFT, RIGHT, TOP, BOTTOM, WIDTH, HEIGHT, CENTER_X, CENTER_Y = (
-        "left", "right", "top", "bottom", "width", "height", "center_x", "center_y"
-    )
-
-    GETTERS_PARENT = {
-        LEFT: lambda parent_actuals: 0,
-        RIGHT: lambda parent_actuals: parent_actuals.get("width", 0),
-        TOP: lambda parent_actuals: 0,
-        BOTTOM: lambda parent_actuals: parent_actuals.get("height", 0),
-        WIDTH: lambda parent_actuals: parent_actuals.get("width", 0),
-        HEIGHT: lambda parent_actuals: parent_actuals.get("height", 0),
-        CENTER_X: lambda parent_actuals: parent_actuals.get("width", 0) / 2,
-        CENTER_Y: lambda parent_actuals: parent_actuals.get("height", 0) / 2,
-    }
-
-    GETTERS_PEER = {
-        LEFT: lambda source_actuals, parent_actuals: (
-            source_actuals.get("left")
-            if source_actuals.get("left") is not None
-            else (parent_actuals.get("width", 0) - source_actuals.get("right", 0) - source_actuals.get("width", 0))
-        ),
-        RIGHT: lambda source_actuals, parent_actuals: (
-            (parent_actuals.get("width", 0) - source_actuals.get("right"))
-            if source_actuals.get("right") is not None
-            else (source_actuals.get("left", 0) + source_actuals.get("width", 0))
-        ),
-        TOP: lambda source_actuals, parent_actuals: (
-            source_actuals.get("top")
-            if source_actuals.get("top") is not None
-            else (parent_actuals.get("height", 0) - source_actuals.get("bottom", 0) - source_actuals.get("height", 0))
-        ),
-        BOTTOM: lambda source_actuals, parent_actuals: (
-            (parent_actuals.get("height", 0) - source_actuals.get("bottom"))
-            if source_actuals.get("bottom") is not None
-            else (source_actuals.get("top", 0) + source_actuals.get("height", 0))
-        ),
-        WIDTH: lambda source_actuals, parent_actuals: source_actuals.get("width", 0),
-        HEIGHT: lambda source_actuals, parent_actuals: source_actuals.get("height", 0),
-        CENTER_X: lambda source_actuals, parent_actuals: (
-            source_actuals.get("left", 0) + source_actuals.get("width", 0) / 2
-        ),
-        CENTER_Y: lambda source_actuals, parent_actuals: (
-            source_actuals.get("top", 0) + source_actuals.get("height", 0) / 2
-        ),
-    }
-
     SETTERS = {
         LEFT: lambda value, anchors, actuals, parent_actuals: {"left": value},
         RIGHT: lambda value, anchors, actuals, parent_actuals: {"right": parent_actuals.get("width", 0) - value},
@@ -307,18 +260,6 @@ class AnchorManager:
     }
 
     PARENT = "parent"
-    LEADING, TRAILING, NEUTRAL = "leading", "trailing", "neutral"
-
-    ATTRIBUTE_TYPES = {
-        WIDTH: NEUTRAL,
-        HEIGHT: NEUTRAL,
-        LEFT: LEADING,
-        RIGHT: TRAILING,
-        TOP: LEADING,
-        BOTTOM: TRAILING,
-        CENTER_X: NEUTRAL,
-        CENTER_Y: NEUTRAL,
-    }
 
     DOCK_PARENT = {
         "dock_top_left": [TOP, LEFT],
@@ -437,29 +378,7 @@ class AnchorManager:
             if type(anchor) is not Anchor:
                 source_value = anchor
             else:
-                source_control = anchor.control
-                source_attribute = anchor.attribute
-                source = source_control._anchors
-                source_type = self.ATTRIBUTE_TYPES[source_attribute]
-                target_type = self.ATTRIBUTE_TYPES[attribute]
-
-                if self.managed.is_contained_in(source_control):
-                    getter = self.GETTERS_PARENT[source_attribute]
-                    source_value = getter(source.actuals)
-                    if source_type == self.LEADING and target_type == self.LEADING:
-                        source_value += self.parent.padding
-                    elif source_type == self.TRAILING and target_type == self.TRAILING:
-                        source_value -= self.parent.padding
-                else:
-                    getter = self.GETTERS_PEER[source_attribute]
-                    source_value = getter(source.actuals, source.parent._anchors.actuals)
-
-                    if source_type == self.LEADING and target_type == self.TRAILING:
-                        source_value -= self.managed.gap
-                    elif source_type == self.TRAILING and target_type == self.LEADING:
-                        source_value += self.managed.gap
-
-                source_value = anchor.resolve_modifiers(source_value)
+                source_value = anchor.resolve(Anchor.TargetData(self.managed, attribute, self.parent))
 
             setter = self.SETTERS[attribute]
             set_value = setter(source_value, self.anchors, self.actuals, self.parent._anchors.actuals)
@@ -474,10 +393,73 @@ class AnchorManager:
 
 
 class Anchor:
+    LEADING, TRAILING, NEUTRAL = "leading", "trailing", "neutral"
+
+    ATTRIBUTE_TYPES = {
+        WIDTH: NEUTRAL,
+        HEIGHT: NEUTRAL,
+        LEFT: LEADING,
+        RIGHT: TRAILING,
+        TOP: LEADING,
+        BOTTOM: TRAILING,
+        CENTER_X: NEUTRAL,
+        CENTER_Y: NEUTRAL,
+    }
+
+    GETTERS_PARENT = {
+        LEFT: lambda parent_actuals: 0,
+        RIGHT: lambda parent_actuals: parent_actuals.get("width", 0),
+        TOP: lambda parent_actuals: 0,
+        BOTTOM: lambda parent_actuals: parent_actuals.get("height", 0),
+        WIDTH: lambda parent_actuals: parent_actuals.get("width", 0),
+        HEIGHT: lambda parent_actuals: parent_actuals.get("height", 0),
+        CENTER_X: lambda parent_actuals: parent_actuals.get("width", 0) / 2,
+        CENTER_Y: lambda parent_actuals: parent_actuals.get("height", 0) / 2,
+    }
+
+    GETTERS_PEER = {
+        LEFT: lambda source_actuals, parent_actuals: (
+            source_actuals.get("left")
+            if source_actuals.get("left") is not None
+            else (parent_actuals.get("width", 0) - source_actuals.get("right", 0) - source_actuals.get("width", 0))
+        ),
+        RIGHT: lambda source_actuals, parent_actuals: (
+            (parent_actuals.get("width", 0) - source_actuals.get("right"))
+            if source_actuals.get("right") is not None
+            else (source_actuals.get("left", 0) + source_actuals.get("width", 0))
+        ),
+        TOP: lambda source_actuals, parent_actuals: (
+            source_actuals.get("top")
+            if source_actuals.get("top") is not None
+            else (parent_actuals.get("height", 0) - source_actuals.get("bottom", 0) - source_actuals.get("height", 0))
+        ),
+        BOTTOM: lambda source_actuals, parent_actuals: (
+            (parent_actuals.get("height", 0) - source_actuals.get("bottom"))
+            if source_actuals.get("bottom") is not None
+            else (source_actuals.get("top", 0) + source_actuals.get("height", 0))
+        ),
+        WIDTH: lambda source_actuals, parent_actuals: source_actuals.get("width", 0),
+        HEIGHT: lambda source_actuals, parent_actuals: source_actuals.get("height", 0),
+        CENTER_X: lambda source_actuals, parent_actuals: (
+                source_actuals.get("left", 0) + source_actuals.get("width", 0) / 2
+        ),
+        CENTER_Y: lambda source_actuals, parent_actuals: (
+                source_actuals.get("top", 0) + source_actuals.get("height", 0) / 2
+        ),
+    }
+
+    @dataclass
+    class TargetData:
+        control: Anchored
+        attribute: str
+        parent: Anchored
+
     def __init__(self, control, attribute):
         self.control = control
         self.attribute = attribute
         self.modifiers = None
+        self.max_of = set()
+        self.min_of = set()
         self.value = None
 
     def __str__(self):
@@ -491,17 +473,62 @@ class Anchor:
 
         return self
 
-    def resolve_modifiers(self, source_value):
+    def resolve(self, target: TargetData, was=None):
+        if self.max_of and was != "max":
+            return max(self.resolve_many(self.max_of, target, "max"))
+        elif self.min_of and was != "min":
+            return min(self.resolve_many(self.min_of, target, "min"))
+        else:
+            return self.resolve_one(target)
+
+    def resolve_many(self, anchors, target: TargetData, was=None):
+        return (
+            anchor.resolve(target, was)
+            if type(anchor) is Anchor
+            else anchor
+            for anchor in anchors
+        )
+
+    def resolve_one(self, target: TargetData):
+        source_control = self.control
+        source_attribute = self.attribute
+        source = source_control._anchors
+        source_type = self.ATTRIBUTE_TYPES[source_attribute]
+        target_type = self.ATTRIBUTE_TYPES[target.attribute]
+
+        if target.control.is_contained_in(source_control):
+            getter = self.GETTERS_PARENT[source_attribute]
+            source_value = getter(source.actuals)
+            if source_type == self.LEADING and target_type == self.LEADING:
+                source_value += target.parent.padding
+            elif source_type == self.TRAILING and target_type == self.TRAILING:
+                source_value -= target.parent.padding
+        else:
+            getter = self.GETTERS_PEER[source_attribute]
+            source_value = getter(source.actuals, source.parent._anchors.actuals)
+
+            if source_type == self.LEADING and target_type == self.TRAILING:
+                source_value -= target.control.gap
+            elif source_type == self.TRAILING and target_type == self.LEADING:
+                source_value += target.control.gap
+
+        return self.resolve_modifiers(source_value, target)
+
+    def resolve_modifiers(self, source_value, target: TargetData):
         if self.modifiers is None:
             return source_value
 
         self.value = source_value
 
-        return self.resolve_recursively(self.modifiers)
+        return self.resolve_recursively(self.modifiers, target)
 
-    def resolve_recursively(self, value):
+    def resolve_recursively(self, value, target: TargetData):
         if type(value) is dict:
-            return value["op"](self.resolve_recursively(value["left"]), self.resolve_recursively(value["right"]))
+            return value["op"](
+                self.resolve_recursively(value["left"], target), self.resolve_recursively(value["right"], target)
+            )
+        elif type(value) is Anchor:
+            return value.resolve(target)
         elif callable(value):
             return value()
         else:
@@ -528,8 +555,31 @@ class Anchor:
     def __pow__(self, other, modulo=None):
         return self.add_modifier(operator.pow, other)
 
+    def __and__(self, other):
+        return True  # TODO
+
+    def __or__(self, other):
+        return True  # TODO
+
+    def __lt__(self, other):
+        self.min_of.add(self)
+        if type(other) is Anchor and other.min_of:
+            self.min_of |= other.min_of
+        else:
+            self.min_of.add(other)
+
+    def __gt__(self, other):
+        self.max_of.add(self)
+        if type(other) is Anchor and other.max_of:
+            self.max_of |= other.max_of
+        else:
+            self.max_of.add(other)
+
 
 class AnchorList(list):
+    """
+    Capture append and extend on the controls list in order to make sure the controls know about the parent.
+    """
 
     def append(self, item):
         super().append(item)
