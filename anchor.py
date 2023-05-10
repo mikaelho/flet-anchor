@@ -348,6 +348,8 @@ class AnchorManager:
                         manager.anchors[attribute] = value
 
                         if type(value) is Anchor:
+                            if conditions_from_context := Anchor.get_current_conditions():
+                                value.conditions.extend(conditions_from_context)
                             value.control._anchors.register(manager.managed)
 
                         if manager.managed.page:  # If we are being displayed
@@ -380,10 +382,9 @@ class AnchorManager:
                 source_value = anchor
             else:
                 target_data = Anchor.TargetData(self.managed, attribute, self.parent)
-                if not anchor.resolve_conditions(target_data):
-                    continue
-
                 source_value = anchor.resolve(target_data)
+                if source_value is None:
+                    continue
 
             setter = self.SETTERS[attribute]
             set_value = setter(source_value, self.anchors, self.actuals, self.parent._anchors.actuals)
@@ -464,6 +465,7 @@ class Anchor:
         self.attribute = attribute
         self.modifiers = None
         self.conditions = []
+        self.alternative = None
         self.real_conditions = False
         self.max_of = set()
         self.min_of = set()
@@ -481,12 +483,23 @@ class Anchor:
         return self
 
     def resolve(self, target: TargetData, was=None):
-        if self.max_of and was != "max":
-            return max(self.resolve_many(self.max_of, target, "max"))
-        elif self.min_of and was != "min":
-            return min(self.resolve_many(self.min_of, target, "min"))
+        if self.resolve_conditions(target):
+            if self.max_of and was != "max":
+                return max(self.resolve_many(self.max_of, target, "max"))
+            elif self.min_of and was != "min":
+                return min(self.resolve_many(self.min_of, target, "min"))
+            else:
+                return self.resolve_one(target)
+        elif self.alternative:
+            return self.resolve_alternative(target)
         else:
-            return self.resolve_one(target)
+            return None
+
+    def resolve_alternative(self, target):
+        if type(self.alternative) is Anchor:
+            return self.alternative.resolve(target)
+        else:
+            return self.alternative
 
     def resolve_many(self, anchors, target: TargetData, was=None):
         return (
@@ -593,7 +606,8 @@ class Anchor:
         return other
 
     def __or__(self, other):
-        return True  # TODO
+        self.alternative = other
+        return self
 
     def __cmp__(self, other):
         pass
