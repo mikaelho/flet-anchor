@@ -484,7 +484,9 @@ class Anchor:
 
     def resolve(self, target: TargetData, was=None):
         if self.resolve_conditions(target):
-            if self.max_of and was != "max":
+            if self.control == "constant":
+                return self.attribute
+            elif self.max_of and was != "max":
                 return max(self.resolve_many(self.max_of, target, "max"))
             elif self.min_of and was != "min":
                 return min(self.resolve_many(self.min_of, target, "min"))
@@ -609,13 +611,11 @@ class Anchor:
         self.alternative = other
         return self
 
-    def __cmp__(self, other):
-        pass
-
-    # For min/max and conditions
+    # Double duty for conditions and min/max - conditions are only actually used if real_conditions set (in __add__)
 
     def __lt__(self, other):
         self.add_condition(operator.lt, other)
+        
         self.min_of.add(self)
         if type(other) is Anchor and other.min_of:
             self.min_of |= other.min_of
@@ -626,6 +626,7 @@ class Anchor:
 
     def __gt__(self, other):
         self.add_condition(operator.gt, other)
+
         self.max_of.add(self)
         if type(other) is Anchor and other.max_of:
             self.max_of |= other.max_of
@@ -633,6 +634,13 @@ class Anchor:
             self.max_of.add(other)
 
         return self
+
+    # Anchors in min/max must play False in order to come out as the winner
+    def __bool__(self):
+        if self.conditions and not self.real_conditions:
+            return False
+
+        return True
 
     # For conditions
 
@@ -722,12 +730,5 @@ if __name__ == "__main__":
 
         root.controls = [search_field, search_button, result_area, done_button]
 
-        # print(Anchor.get_current_conditions())
-        # with root.width > root.height:
-        #     print(Anchor.get_current_conditions())
-        #     with root.bottom:
-        #         print(Anchor.get_current_conditions())
-        #     print(Anchor.get_current_conditions())
-        # print(Anchor.get_current_conditions())
 
     ft.app(main)
