@@ -615,7 +615,7 @@ class Anchor:
 
     def __lt__(self, other):
         self.add_condition(operator.lt, other)
-        
+
         self.min_of.add(self)
         if type(other) is Anchor and other.min_of:
             self.min_of |= other.min_of
