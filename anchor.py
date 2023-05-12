@@ -470,6 +470,12 @@ class Anchor:
         self._max_of = set()
         self._min_of = set()
         self._value = None
+        self._share = None
+
+    def share(self, share_of, total):
+        print("SETTING")
+        self._share = share_of, total
+        return self
 
     def __str__(self):
         return f"{isinstance(self._control, Anchored) and type(self._control.content).__name__ or self._control}.{self._attribute}"
@@ -483,19 +489,27 @@ class Anchor:
         return self
 
     def _resolve(self, target: TargetData, was=None):
+        print(self._attribute)
+        result = None
         if self._resolve_conditions(target):
             if self._control == "constant":
-                return self._attribute
+                result = self._attribute
             elif self._max_of and was != "max":
-                return max(self._resolve_many(self._max_of, target, "max"))
+                result = max(self._resolve_many(self._max_of, target, "max"))
             elif self._min_of and was != "min":
-                return min(self._resolve_many(self._min_of, target, "min"))
+                result = min(self._resolve_many(self._min_of, target, "min"))
             else:
-                return self._resolve_one(target)
+                result = self._resolve_one(target)
         elif self._alternative:
-            return self._resolve_alternative(target)
-        else:
+            result = self._resolve_alternative(target)
+
+        if result is None:
             return None
+
+        if self._share is not None:
+            result = self._apply_share(result, target)
+
+        return result
 
     def _resolve_alternative(self, target):
         if type(self._alternative) is Anchor:
@@ -562,6 +576,18 @@ class Anchor:
             return value()
         else:
             return value
+
+    def _apply_share(self, value, target):
+        print("APPLYING")
+        share_of, total = self._share
+        parent_anchors: AnchorManager = target.parent._anchors
+        target_anchors: AnchorManager = target.control._anchors
+        padding = parent_anchors.padding if parent_anchors.padding is not None else target.parent.DEFAULT_PADDING
+        gap = target_anchors.gap if target_anchors.gap is not None else target.control.DEFAULT_GAP
+
+        final_share = ((value - (total - 1) * gap - 2 * padding) / total) * share_of + (share_of - 1) * gap
+
+        return final_share
 
     def __add__(self, other):
         return self._add_modifier(operator.add, other)
