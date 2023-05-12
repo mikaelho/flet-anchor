@@ -349,8 +349,8 @@ class AnchorManager:
 
                         if type(value) is Anchor:
                             if conditions_from_context := Anchor.get_current_conditions():
-                                value.conditions.extend(conditions_from_context)
-                            value.control._anchors.register(manager.managed)
+                                value._conditions.extend(conditions_from_context)
+                            value._control._anchors.register(manager.managed)
 
                         if manager.managed.page:  # If we are being displayed
                             manager.update_anchor_actuals()
@@ -382,7 +382,7 @@ class AnchorManager:
                 source_value = anchor
             else:
                 target_data = Anchor.TargetData(self.managed, attribute, self.parent)
-                source_value = anchor.resolve(target_data)
+                source_value = anchor._resolve(target_data)
                 if source_value is None:
                     continue
 
@@ -461,59 +461,59 @@ class Anchor:
         parent: Anchored
 
     def __init__(self, control, attribute):
-        self.control = control
-        self.attribute = attribute
-        self.modifiers = None
-        self.conditions = []
-        self.alternative = None
-        self.real_conditions = False
-        self.max_of = set()
-        self.min_of = set()
-        self.value = None
+        self._control = control
+        self._attribute = attribute
+        self._modifiers = None
+        self._conditions = []
+        self._alternative = None
+        self._real_conditions = False
+        self._max_of = set()
+        self._min_of = set()
+        self._value = None
 
     def __str__(self):
-        return f"{isinstance(self.control, Anchored) and type(self.control.content).__name__ or self.control}.{self.attribute}"
+        return f"{isinstance(self._control, Anchored) and type(self._control.content).__name__ or self._control}.{self._attribute}"
 
-    def add_modifier(self, op, other):
-        if self.modifiers is None:
-            self.modifiers = lambda: self.value
+    def _add_modifier(self, op, other):
+        if self._modifiers is None:
+            self._modifiers = lambda: self._value
 
-        self.modifiers = {"op": op, "left": self.modifiers, "right": other}
+        self._modifiers = {"op": op, "left": self._modifiers, "right": other}
 
         return self
 
-    def resolve(self, target: TargetData, was=None):
-        if self.resolve_conditions(target):
-            if self.control == "constant":
-                return self.attribute
-            elif self.max_of and was != "max":
-                return max(self.resolve_many(self.max_of, target, "max"))
-            elif self.min_of and was != "min":
-                return min(self.resolve_many(self.min_of, target, "min"))
+    def _resolve(self, target: TargetData, was=None):
+        if self._resolve_conditions(target):
+            if self._control == "constant":
+                return self._attribute
+            elif self._max_of and was != "max":
+                return max(self._resolve_many(self._max_of, target, "max"))
+            elif self._min_of and was != "min":
+                return min(self._resolve_many(self._min_of, target, "min"))
             else:
-                return self.resolve_one(target)
-        elif self.alternative:
-            return self.resolve_alternative(target)
+                return self._resolve_one(target)
+        elif self._alternative:
+            return self._resolve_alternative(target)
         else:
             return None
 
-    def resolve_alternative(self, target):
-        if type(self.alternative) is Anchor:
-            return self.alternative.resolve(target)
+    def _resolve_alternative(self, target):
+        if type(self._alternative) is Anchor:
+            return self._alternative._resolve(target)
         else:
-            return self.alternative
+            return self._alternative
 
-    def resolve_many(self, anchors, target: TargetData, was=None):
+    def _resolve_many(self, anchors, target: TargetData, was=None):
         return (
-            anchor.resolve(target, was)
+            anchor._resolve(target, was)
             if type(anchor) is Anchor
             else anchor
             for anchor in anchors
         )
 
-    def resolve_one(self, target: TargetData):
-        source_control = self.control
-        source_attribute = self.attribute
+    def _resolve_one(self, target: TargetData):
+        source_control = self._control
+        source_attribute = self._attribute
         source = source_control._anchors
         source_type = self.ATTRIBUTE_TYPES[source_attribute]
         target_type = self.ATTRIBUTE_TYPES[target.attribute]
@@ -534,110 +534,110 @@ class Anchor:
             elif source_type == self.TRAILING and target_type == self.LEADING:
                 source_value += target.control.gap
 
-        return self.resolve_modifiers(source_value, target)
+        return self._resolve_modifiers(source_value, target)
 
-    def resolve_modifiers(self, source_value, target: TargetData):
-        if self.modifiers is None:
+    def _resolve_modifiers(self, source_value, target: TargetData):
+        if self._modifiers is None:
             return source_value
 
-        self.value = source_value
+        self._value = source_value
 
-        return self.resolve_recursively(self.modifiers, target)
+        return self._resolve_recursively(self._modifiers, target)
 
-    def resolve_conditions(self, target: TargetData):
-        # print(f"{self.conditions=} {self.real_conditions=} {list(self.max_of)=}")
-        if not self.real_conditions:
+    def _resolve_conditions(self, target: TargetData):
+        # print(f"{self.conditions=} {self._real_conditions=} {list(self._max_of)=}")
+        if not self._real_conditions:
             return True
 
-        return all(self.resolve_recursively(condition, target) for condition in self.conditions[0].conditions   )
+        return all(self._resolve_recursively(condition, target) for condition in self._conditions[0]._conditions)
 
-    def resolve_recursively(self, value, target: TargetData):
+    def _resolve_recursively(self, value, target: TargetData):
         if type(value) is dict:
             return value["op"](
-                self.resolve_recursively(value["left"], target), self.resolve_recursively(value["right"], target)
+                self._resolve_recursively(value["left"], target), self._resolve_recursively(value["right"], target)
             )
         elif type(value) is Anchor:
-            return value.resolve(target)
+            return value._resolve(target)
         elif callable(value):
             return value()
         else:
             return value
 
     def __add__(self, other):
-        return self.add_modifier(operator.add, other)
+        return self._add_modifier(operator.add, other)
 
     def __sub__(self, other):
-        return self.add_modifier(operator.sub, other)
+        return self._add_modifier(operator.sub, other)
 
     def __mul__(self, other):
-        return self.add_modifier(operator.mul, other)
+        return self._add_modifier(operator.mul, other)
 
     def __truediv__(self, other):
-        return self.add_modifier(operator.truediv, other)
+        return self._add_modifier(operator.truediv, other)
 
     def __floordiv__(self, other):
-        return self.add_modifier(operator.floordiv, other)
+        return self._add_modifier(operator.floordiv, other)
 
     def __mod__(self, other):
-        return self.add_modifier(operator.mod, other)
+        return self._add_modifier(operator.mod, other)
 
     def __radd__(self, other):
-        return self.add_modifier(operator.add, other)
+        return self._add_modifier(operator.add, other)
 
     def __rsub__(self, other):
-        return self.add_modifier(operator.sub, other)
+        return self._add_modifier(operator.sub, other)
 
     def __rmul__(self, other):
-        return self.add_modifier(operator.mul, other)
+        return self._add_modifier(operator.mul, other)
 
     def __rtruediv__(self, other):
-        return self.add_modifier(operator.truediv, other)
+        return self._add_modifier(operator.truediv, other)
 
     def __rfloordiv__(self, other):
-        return self.add_modifier(operator.floordiv, other)
+        return self._add_modifier(operator.floordiv, other)
 
     def __rmod__(self, other):
-        return self.add_modifier(operator.mod, other)
+        return self._add_modifier(operator.mod, other)
 
     def __pow__(self, other, modulo=None):
-        return self.add_modifier(operator.pow, other)
+        return self._add_modifier(operator.pow, other)
 
     def __and__(self, other):
-        other.conditions.append(self)
-        other.real_conditions = True
+        other._conditions.append(self)
+        other._real_conditions = True
         return other
 
     def __or__(self, other):
-        self.alternative = other
+        self._alternative = other
         return self
 
-    # Double duty for conditions and min/max - conditions are only actually used if real_conditions set (in __add__)
+    # Double duty for conditions and min/max - conditions are only actually used if _real_conditions set (in __add__)
 
     def __lt__(self, other):
         self.add_condition(operator.lt, other)
 
-        self.min_of.add(self)
-        if type(other) is Anchor and other.min_of:
-            self.min_of |= other.min_of
+        self._min_of.add(self)
+        if type(other) is Anchor and other._min_of:
+            self._min_of |= other._min_of
         else:
-            self.min_of.add(other)
+            self._min_of.add(other)
 
         return self
 
     def __gt__(self, other):
         self.add_condition(operator.gt, other)
 
-        self.max_of.add(self)
-        if type(other) is Anchor and other.max_of:
-            self.max_of |= other.max_of
+        self._max_of.add(self)
+        if type(other) is Anchor and other._max_of:
+            self._max_of |= other._max_of
         else:
-            self.max_of.add(other)
+            self._max_of.add(other)
 
         return self
 
     # Anchors in min/max must play False in order to come out as the winner
     def __bool__(self):
-        if self.conditions and not self.real_conditions:
+        if self._conditions and not self._real_conditions:
             return False
 
         return True
@@ -661,14 +661,14 @@ class Anchor:
     #     self.add_condition(operator.ne, other)
 
     def add_condition(self, operation, other):
-        self.conditions.append({"op": operation, "left": self, "right": other})
+        self._conditions.append({"op": operation, "left": self, "right": other})
 
     # As a context manager
 
     def __enter__(self):
         frame = inspect.currentframe().f_back.f_back
         conditions = frame.f_locals.get("_flet_anchor_conditions", [])
-        conditions.append(self.conditions)
+        conditions.append(self._conditions)
         frame.f_locals["_flet_anchor_conditions"] = conditions
 
     def __exit__(self, exc_type, exc_val, exc_tb):
