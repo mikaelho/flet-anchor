@@ -11,13 +11,18 @@ def main(page: ft.Page):
     content_area = a.Anchored(ft.Container(bgcolor=ft.colors.GREEN_100))
 
     app_bar.dock_top = root
-
-    # with root.width >= 600:
-    menu_panel.dock_bottom_left = root
-    menu_panel.top = app_bar.bottom
-    content_area.dock_bottom_right = root
     content_area.top = app_bar.bottom
-    content_area.left = menu_panel.right
+    content_area.dock_bottom_right = root
+
+    with root.width >= 600:
+        menu_panel.dock_bottom_left = root
+        menu_panel.top = app_bar.bottom
+        content_area.left = menu_panel.right
+
+    with root.width < 600:
+        menu_panel.dock_top_bottom = root
+        menu_panel.right = root.left
+        content_area.left = root.left
 
     root.controls = [app_bar, menu_panel, content_area]
 
