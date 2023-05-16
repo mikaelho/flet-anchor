@@ -295,6 +295,8 @@ class AnchorManager:
         self.gap = None
         self.padding = None
         self.anchors = {}
+        self.conditions = {}
+        self.conditional_anchors = {}
         self.source_for = {}
         self.actuals = {}
 
@@ -345,11 +347,14 @@ class AnchorManager:
                     task = self.UPDATE_QUEUE.get_nowait()
                     if "set" in task:
                         manager, attribute, value = task["set"]
-                        manager.anchors[attribute] = value
+                        if conditions_from_context := Anchor.get_current_conditions():
+                            context_id, current_conditions = conditions_from_context
+                            manager.conditions[context_id] = current_conditions
+                            manager.conditional_anchors.setdefault(context_id, {})[attribute] = value
+                        else:
+                            manager.anchors[attribute] = value
 
                         if type(value) is Anchor:
-                            if conditions_from_context := Anchor.get_current_conditions():
-                                value._conditions.extend(conditions_from_context)
                             value._control._anchors.register(manager.managed)
 
                         if manager.managed.page:  # If we are being displayed
@@ -374,7 +379,15 @@ class AnchorManager:
                 self.managed.page.update()
 
     def update_anchor_actuals(self):
-        for attribute, anchor in self.anchors.items():
+        self.check_conditions()
+
+        self.update_anchors(self.anchors)
+
+        for control in self.source_for.values():
+            control._anchors.update_anchor_actuals()
+
+    def update_anchors(self, anchors):
+        for attribute, anchor in anchors.items():
             if anchor is None:
                 continue
             # print (self.managed.content, attribute, anchor)
@@ -394,8 +407,14 @@ class AnchorManager:
                     self.actuals[set_attribute] = final_value
                     self.managed._set_attr(set_attribute, final_value)
 
-        for control in self.source_for.values():
-            control._anchors.update_anchor_actuals()
+    def check_conditions(self):
+        target = Anchor.TargetData(self.managed, TOP, self.parent)  # Dummy attribute
+        for context_id, conditions in self.conditions.items():
+            if all(
+                Anchor._resolve_recursively(condition, target)
+                for condition_list in conditions for condition in condition_list
+            ):
+                self.update_anchors(self.conditional_anchors[context_id])
 
 
 class Anchor:
@@ -473,7 +492,6 @@ class Anchor:
         self._share = None
 
     def share(self, share_of, total):
-        print("SETTING")
         self._share = share_of, total
         return self
 
@@ -489,7 +507,6 @@ class Anchor:
         return self
 
     def _resolve(self, target: TargetData, was=None):
-        print(self._attribute)
         result = None
         if self._resolve_conditions(target):
             if self._control == "constant":
@@ -563,12 +580,13 @@ class Anchor:
         if not self._real_conditions:
             return True
 
-        return all(self._resolve_recursively(condition, target) for condition in self._conditions[0]._conditions)
+        return all(Anchor._resolve_recursively(condition, target) for condition in self._conditions[0]._conditions)
 
-    def _resolve_recursively(self, value, target: TargetData):
+    @classmethod
+    def _resolve_recursively(cls, value, target: TargetData):
         if type(value) is dict:
             return value["op"](
-                self._resolve_recursively(value["left"], target), self._resolve_recursively(value["right"], target)
+                cls._resolve_recursively(value["left"], target), cls._resolve_recursively(value["right"], target)
             )
         elif type(value) is Anchor:
             return value._resolve(target)
@@ -578,7 +596,6 @@ class Anchor:
             return value
 
     def _apply_share(self, value, target):
-        print("APPLYING")
         share_of, total = self._share
         parent_anchors: AnchorManager = target.parent._anchors
         target_anchors: AnchorManager = target.control._anchors
@@ -693,15 +710,17 @@ class Anchor:
 
     def __enter__(self):
         frame = inspect.currentframe().f_back.f_back
-        conditions = frame.f_locals.get("_flet_anchor_conditions", [])
-        conditions.append(self._conditions)
+        conditions = frame.f_locals.get("_flet_anchor_conditions", {})
+        conditions.setdefault("context_ids", []).append(uuid.uuid4())
+        conditions.setdefault("conditions", []).append(self._conditions)
         frame.f_locals["_flet_anchor_conditions"] = conditions
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         frame = inspect.currentframe().f_back.f_back
         conditions = frame.f_locals.get("_flet_anchor_conditions")
-        conditions.pop()
-        if not conditions:
+        conditions["context_ids"].pop()
+        conditions["conditions"].pop()
+        if not conditions["conditions"]:
             del frame.f_locals["_flet_anchor_conditions"]
 
     @staticmethod
@@ -709,9 +728,11 @@ class Anchor:
         frame = inspect.currentframe()
         while frame:
             if conditions := frame.f_locals.get("_flet_anchor_conditions"):
-                return conditions
+                context_id = conditions["context_ids"][-1]
+                current_conditions = conditions["conditions"]
+                return context_id, list(current_conditions)
             frame = frame.f_back
-        return []
+        return None
 
 
 class AnchorList(list):
