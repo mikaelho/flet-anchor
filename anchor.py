@@ -379,9 +379,9 @@ class AnchorManager:
                 self.managed.page.update()
 
     def update_anchor_actuals(self):
-        self.check_conditions()
-
         self.update_anchors(self.anchors)
+
+        self.check_conditions()
 
         for control in self.source_for.values():
             control._anchors.update_anchor_actuals()
