@@ -491,6 +491,16 @@ class Anchor:
         self._value = None
         self._share = None
 
+    @property
+    def current(self):
+        current_value = self._control._anchors.actuals.get(self._attribute)
+
+        if current_value is None:
+            target_data = Anchor.TargetData(self._control, self._attribute, self._control._anchors.parent)
+            current_value = self._resolve(target_data)
+
+        return current_value
+
     def share(self, share_of, total):
         self._share = share_of, total
         return self

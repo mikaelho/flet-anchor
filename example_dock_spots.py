@@ -2,6 +2,15 @@ import anchor as a
 import flet as ft
 
 
+def current_location(docked):
+    print(docked.left.current, docked.top.current)
+
+def create_docked(dock):
+    docked = a.Anchored(ft.ElevatedButton(dock))
+    docked.content.on_click = lambda e: current_location(docked)
+
+    return docked
+
 def main(page: ft.Page):
     page.add(root := a.AnchorStack(expand=True))
 
@@ -18,7 +27,7 @@ def main(page: ft.Page):
     """.split()
 
     for dock in reversed(docks):
-        docked = a.Anchored(ft.ElevatedButton(dock))
+        docked = create_docked(dock)
         setattr(docked, dock, root)
         root.controls.append(docked)
 
